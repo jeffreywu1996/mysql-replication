@@ -1,45 +1,55 @@
-version: '3.8'
-
 services:
   mysql-master:
     image: mysql:8.0
     container_name: mysql-master
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword  # Replace with a strong password
+    volumes:
+      - ./master/my.cnf:/etc/mysql/my.cnf
+      - ./master/init:/docker-entrypoint-initdb.d
+      - master-data:/var/lib/mysql
     ports:
       - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: mydb
-    volumes:
-      - ./master-data:/var/lib/mysql
-      - ./master-conf:/etc/mysql/conf.d
-    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - mysql-cluster-net
 
   mysql-slave-1:
     image: mysql:8.0
     container_name: mysql-slave-1
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword  # Ensure consistency
+    volumes:
+      - ./slave1/my.cnf:/etc/mysql/my.cnf
+      - ./slave1/init:/docker-entrypoint-initdb.d
+      - slave1-data:/var/lib/mysql
     ports:
       - "3307:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: mydb
-    volumes:
-      - ./slave1-data:/var/lib/mysql
-      - ./slave1-conf:/etc/mysql/conf.d
     depends_on:
       - mysql-master
-    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - mysql-cluster-net
 
   mysql-slave-2:
     image: mysql:8.0
     container_name: mysql-slave-2
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword  # Ensure consistency
+    volumes:
+      - ./slave2/my.cnf:/etc/mysql/my.cnf
+      - ./slave2/init:/docker-entrypoint-initdb.d
+      - slave2-data:/var/lib/mysql
     ports:
       - "3308:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: mydb
-    volumes:
-      - ./slave2-data:/var/lib/mysql
-      - ./slave2-conf:/etc/mysql/conf.d
     depends_on:
       - mysql-master
-    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - mysql-cluster-net
+
+volumes:
+  master-data:
+  slave1-data:
+  slave2-data:
+
+networks:
+  mysql-cluster-net:
+    driver: bridge
