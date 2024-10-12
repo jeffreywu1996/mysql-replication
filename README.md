@@ -1,25 +1,22 @@
 # Mysql replication
 
 ## Getting started
+Starting docker compose with 1 mysql master and 2 replicas
 ```
 docker compose up
+```
 
+## How to verify replication
+1. Connect to the Master:
 
-Verify
-
-
-
-Connect to the Master:
-
-bash
-Copy code
+```bash
 docker exec -it mysql-master mysql -u root -p
 Enter rootpassword when prompted.
+```
 
-Create Database and Table:
+2. Create Database and Table:
 
-sql
-Copy code
+```sql
 CREATE DATABASE mydb;
 USE mydb;
 
@@ -28,35 +25,34 @@ CREATE TABLE test_table (
   data VARCHAR(100),
   PRIMARY KEY (id)
 );
-Insert Data:
+```
 
-sql
-Copy code
+3. Insert Data
+
+```sql
 INSERT INTO test_table (data) VALUES ('Replication test 1');
 INSERT INTO test_table (data) VALUES ('Replication test 2');
+```
+
 Exit the MySQL Shell:
-
-sql
-Copy code
+```sql
 EXIT;
-Check Data on Slaves:
 
+4. Check Data on Slaves:
 For Slave 1:
 
-bash
-Copy code
+```bash
 docker exec -it mysql-slave-1 mysql -u root -p -e "SELECT * FROM mydb.test_table;"
-For Slave 2:
+Enter rootpassword when prompted.
+```
 
-bash
-Copy code
+For Slave 2:
+```bash
 docker exec -it mysql-slave-2 mysql -u root -p -e "SELECT * FROM mydb.test_table;"
 Enter rootpassword when prompted.
-
-Expected Output on Both Slaves:
-
-bash
-Copy code
+```
+5. Verify Expected Output on Both Slaves:
+```bash
 +----+--------------------+
 | id | data               |
 +----+--------------------+
