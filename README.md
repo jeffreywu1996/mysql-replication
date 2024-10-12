@@ -27,7 +27,7 @@ CREATE TABLE test_table (
 );
 ```
 
-3. Insert Data
+3. Insert Test Data into master
 
 ```sql
 INSERT INTO test_table (data) VALUES ('Replication test 1');
@@ -37,8 +37,9 @@ INSERT INTO test_table (data) VALUES ('Replication test 2');
 Exit the MySQL Shell:
 ```sql
 EXIT;
+```
 
-4. Check Data on Slaves:
+4. Check Inserted Data are Replicated to Slaves:
 For Slave 1:
 
 ```bash
@@ -51,6 +52,7 @@ For Slave 2:
 docker exec -it mysql-slave-2 mysql -u root -p -e "SELECT * FROM mydb.test_table;"
 Enter rootpassword when prompted.
 ```
+
 5. Verify Expected Output on Both Slaves:
 ```bash
 +----+--------------------+
