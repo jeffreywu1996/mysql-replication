@@ -1,55 +1,127 @@
 services:
   mysql-master:
-    image: mysql:8.0
+    image: mysql:8
     container_name: mysql-master
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword  # Replace with a strong password
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
     volumes:
       - ./master/my.cnf:/etc/mysql/my.cnf
-      - ./master/init:/docker-entrypoint-initdb.d
-      - master-data:/var/lib/mysql
+      - ./master/init/master-init.sql:/docker-entrypoint-initdb.d/master-init.sql
     ports:
       - "3306:3306"
     networks:
-      - mysql-cluster-net
+      - replication
+    depends_on:
+      - prometheus
 
-  mysql-slave-1:
-    image: mysql:8.0
-    container_name: mysql-slave-1
+  mysql-slave1:
+    image: mysql:8
+    container_name: mysql-slave1
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword  # Ensure consistency
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
     volumes:
       - ./slave1/my.cnf:/etc/mysql/my.cnf
-      - ./slave1/init:/docker-entrypoint-initdb.d
-      - slave1-data:/var/lib/mysql
+      - ./slave1/init/slave-init.sh:/docker-entrypoint-initdb.d/slave-init.sh
     ports:
       - "3307:3306"
+    networks:
+      - replication
     depends_on:
       - mysql-master
-    networks:
-      - mysql-cluster-net
+      - prometheus
 
-  mysql-slave-2:
-    image: mysql:8.0
-    container_name: mysql-slave-2
+  mysql-slave2:
+    image: mysql:8
+    container_name: mysql-slave2
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword  # Ensure consistency
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
     volumes:
       - ./slave2/my.cnf:/etc/mysql/my.cnf
-      - ./slave2/init:/docker-entrypoint-initdb.d
-      - slave2-data:/var/lib/mysql
+      - ./slave2/init/slave-init.sh:/docker-entrypoint-initdb.d/slave-init.sh
     ports:
       - "3308:3306"
+    networks:
+      - replication
     depends_on:
       - mysql-master
-    networks:
-      - mysql-cluster-net
+      - prometheus
 
-volumes:
-  master-data:
-  slave1-data:
-  slave2-data:
+  mysqld_exporter_master:
+    image: prom/mysqld-exporter:latest
+    container_name: mysqld_exporter_master
+    environment:
+      DATA_SOURCE_NAME: exporter_user:exporter_password@(mysql-master:3306)/
+    command:
+     - "--mysqld.username=exporter_user:exporter_password"
+     - "--mysqld.address=mysql-master:3306"
+    networks:
+      - replication
+    depends_on:
+      - mysql-master
+
+  mysqld_exporter_slave1:
+    image: prom/mysqld-exporter:latest
+    container_name: mysqld_exporter_slave1
+    environment:
+      DATA_SOURCE_NAME: exporter_user:exporter_password@(mysql-slave1:3306)/
+    command:
+     - "--mysqld.username=exporter_user:exporter_password"
+     - "--mysqld.address=mysql-slave1:3306"
+    networks:
+      - replication
+    depends_on:
+      - mysql-slave1
+
+  mysqld_exporter_slave2:
+    image: prom/mysqld-exporter:latest
+    container_name: mysqld_exporter_slave2
+    environment:
+      DATA_SOURCE_NAME: exporter_user:exporter_password@(mysql-slave2:3306)/
+    command:
+     - "--mysqld.username=exporter_user:exporter_password"
+     - "--mysqld.address=mysql-slave2:3306"
+    networks:
+      - replication
+    depends_on:
+      - mysql-slave2
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - replication
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    networks:
+      - replication
+    depends_on:
+      - prometheus
 
 networks:
-  mysql-cluster-net:
+  replication:
     driver: bridge
+
+volumes:
+  mysql_master_data:
+  mysql_slave1_data:
+  mysql_slave2_data:
+  grafana_data:
