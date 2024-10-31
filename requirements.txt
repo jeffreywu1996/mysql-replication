@@ -1,0 +1,2 @@
+locust
+mysql-connector-python

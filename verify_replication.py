@@ -1,20 +1,8 @@
 import mysql.connector
-from mysql.connector import Error
 import time
-import sys
-import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-# Configuration for Master and Slaves
-MASTER_CONFIG = {
+# Database configurations for master and slaves
+db_config_master = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
@@ -22,182 +10,75 @@ MASTER_CONFIG = {
     'database': 'mydb'
 }
 
-SLAVES_CONFIG = [
-    {
-        'name': 'Slave 1',
-        'host': 'localhost',
-        'port': 3307,
-        'user': 'root',
-        'password': 'rootpassword',
-        'database': 'mydb'
-    },
-    {
-        'name': 'Slave 2',
-        'host': 'localhost',
-        'port': 3308,
-        'user': 'root',
-        'password': 'rootpassword',
-        'database': 'mydb'
-    }
-]
+db_config_slave1 = db_config_master.copy()
+db_config_slave1.update({'port': 3307})
 
-TEST_TABLE = 'test_table'
-TEST_DATA = 'Replication test entry'
+db_config_slave2 = db_config_master.copy()
+db_config_slave2.update({'port': 3308})
+
 
 def connect_db(config):
-    """
-    Establish a connection to the MySQL database.
-    """
+    return mysql.connector.connect(**config)
+
+
+def execute_query(connection, query, params=None):
+    cursor = connection.cursor()
+    cursor.execute(query, params or ())
+    connection.commit()
+    cursor.close()
+
+
+def fetch_query(connection, query):
+    cursor = connection.cursor()
+    cursor.execute(query)
+    result = cursor.fetchall()
+    cursor.close()
+    return result
+
+
+def load_test():
     try:
-        connection = mysql.connector.connect(
-            host=config['host'],
-            port=config['port'],
-            user=config['user'],
-            password=config['password'],
-            database=config['database']
+        # Connect to master
+        master_conn = connect_db(db_config_master)
+        print("Connected to Master")
+
+        # Create a test table if not exists
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS test_replication (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            data VARCHAR(255) NOT NULL
         )
-        if connection.is_connected():
-            logging.info(f"Connected to {config['host']}:{config['port']} successfully.")
-            return connection
-    except Error as e:
-        logging.error(f"Error connecting to {config['host']}:{config['port']} - {e}")
-    return None
+        """
+        execute_query(master_conn, create_table_query)
 
-def check_replication_status(slave_conn, slave_name):
-    """
-    Check the replication status of a slave.
-    """
-    try:
-        cursor = slave_conn.cursor(dictionary=True)
-        cursor.execute("SHOW REPLICA STATUS;")
-        status = cursor.fetchone()
-        if not status:
-            logging.warning(f"{slave_name}: No replication status available.")
-            return False
+        # Insert data into master
+        insert_data_query = "INSERT INTO test_replication (data) VALUES (%s)"
+        test_data = [(f"Test data {i}",) for i in range(1, 11)]
+        for data in test_data:
+            execute_query(master_conn, insert_data_query, data)
+            print(f"Inserted data: {data[0]}")
 
-        io_running = status.get('Replica_IO_Running')
-        sql_running = status.get('Replica_SQL_Running')
-        seconds_behind = status.get('Seconds_Behind_Master')
+        # Allow some time for replication
+        time.sleep(5)
 
-        if io_running == 'Yes' and sql_running == 'Yes':
-            logging.info(f"{slave_name}: Replication is running smoothly. Seconds behind master: {seconds_behind}")
-            return True
-        else:
-            logging.error(f"{slave_name}: Replication issues detected.")
-            logging.error(f"    Replica_IO_Running: {io_running}")
-            logging.error(f"    Replica_SQL_Running: {sql_running}")
-            logging.error(f"    Seconds_Behind_Master: {seconds_behind}")
-            return False
-    except Error as e:
-        logging.error(f"{slave_name}: Error checking replication status - {e}")
-        return False
+        # Check data in slaves
+        slave_connections = [connect_db(db_config_slave1), connect_db(db_config_slave2)]
+        for i, slave_conn in enumerate(slave_connections, start=1):
+            replicated_data = fetch_query(slave_conn, "SELECT * FROM test_replication")
+            print(f"Data in Slave {i}: {replicated_data}")
+
+            # Check if all rows are present
+            if len(replicated_data) == len(test_data):
+                print(f"Replication to Slave {i} is successful!")
+            else:
+                print(f"Replication to Slave {i} is incomplete.")
+
     finally:
-        cursor.close()
-
-def insert_test_data(master_conn):
-    """
-    Insert a test record into the master database.
-    """
-    try:
-        cursor = master_conn.cursor()
-        # Ensure test_table exists
-        cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS {TEST_TABLE} (
-                id INT NOT NULL AUTO_INCREMENT,
-                data VARCHAR(255),
-                PRIMARY KEY (id)
-            );
-        """)
-        # Insert test data
-        cursor.execute(f"INSERT INTO {TEST_TABLE} (data) VALUES (%s);", (TEST_DATA,))
-        master_conn.commit()
-        logging.info(f"Inserted test data into master: '{TEST_DATA}'")
-    except Error as e:
-        logging.error(f"Error inserting test data into master - {e}")
-    finally:
-        cursor.close()
-
-def verify_test_data_on_slave(slave_conn, slave_name):
-    """
-    Verify that the test record exists on the slave database.
-    """
-    try:
-        cursor = slave_conn.cursor()
-        cursor.execute(f"SELECT data FROM {TEST_TABLE} WHERE data = %s;", (TEST_DATA,))
-        result = cursor.fetchone()
-        if result:
-            logging.info(f"{slave_name}: Test data verified successfully.")
-            return True
-        else:
-            logging.error(f"{slave_name}: Test data not found.")
-            return False
-    except Error as e:
-        logging.error(f"{slave_name}: Error verifying test data - {e}")
-        return False
-    finally:
-        cursor.close()
-
-def main():
-    # Connect to Master
-    master_conn = connect_db(MASTER_CONFIG)
-    if not master_conn:
-        logging.critical("Failed to connect to master. Exiting.")
-        sys.exit(1)
-
-    # Connect to Slaves
-    slave_conns = []
-    for slave in SLAVES_CONFIG:
-        conn = connect_db(slave)
-        if conn:
-            slave_conns.append((slave['name'], conn))
-        else:
-            logging.warning(f"{slave['name']}: Unable to establish connection.")
-
-    if not slave_conns:
-        logging.critical("No slaves connected. Exiting.")
+        # Close all connections
         master_conn.close()
-        sys.exit(1)
+        for slave_conn in slave_connections:
+            slave_conn.close()
 
-    # Check replication status on each slave
-    replication_ok = True
-    for slave_name, conn in slave_conns:
-        status = check_replication_status(conn, slave_name)
-        if not status:
-            replication_ok = False
 
-    if not replication_ok:
-        logging.error("Replication status check failed on one or more slaves.")
-    else:
-        logging.info("All slaves are replicating correctly.")
-
-    # Insert test data on master
-    insert_test_data(master_conn)
-
-    # Wait for replication to catch up
-    logging.info("Waiting for replication to propagate test data...")
-    time.sleep(10)  # Adjust as necessary based on your environment
-
-    # Verify test data on slaves
-    data_ok = True
-    for slave_name, conn in slave_conns:
-        exists = verify_test_data_on_slave(conn, slave_name)
-        if not exists:
-            data_ok = False
-
-    if data_ok:
-        logging.info("Data consistency check passed on all slaves.")
-    else:
-        logging.error("Data consistency check failed on one or more slaves.")
-
-    # Close all connections
-    master_conn.close()
-    for _, conn in slave_conns:
-        conn.close()
-
-    if replication_ok and data_ok:
-        logging.info("Master-Slave replication verification completed successfully.")
-    else:
-        logging.warning("Master-Slave replication verification encountered issues.")
-
-if __name__ == "__main__":
-    main()
+# Run the load test
+load_test()
